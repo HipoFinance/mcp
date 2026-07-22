@@ -1,0 +1,126 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { Address, Dictionary } from '@ton/ton'
+import { Participation, Times, TreasuryConfig, participationDictionaryValue } from '@hipo-finance/sdk'
+import { formatGram, parseGram } from './format.js'
+import {
+    computeApy,
+    getExchangeRate,
+    getParticipation,
+    getRewardHistory,
+    getWalletStatus,
+} from './protocol.js'
+import { HipoReader, LoanStatus, TreasuryFees, WalletStatus } from './reader.js'
+
+const roundDuration = 65536
+const someAddress = Address.parse('EQCLyZHP4Xe8fpchQz76O-_RmUhaVc_9BAoGyJrwJrcbz2eZ')
+
+function fakeTimes(): Times {
+    return {
+        currentRoundSince: 1784696584n,
+        participateSince: 1784729352n,
+        participateUntil: 1784753928n,
+        nextRoundSince: 1784696584n + BigInt(roundDuration),
+        nextRoundUntil: 1784696584n + 2n * BigInt(roundDuration),
+        stakeHeldFor: 32768n,
+    }
+}
+
+function fakeState(): TreasuryConfig {
+    return {
+        totalCoins: 1_080_000_000_000n, // 1080 GRAM
+        totalTokens: 1_000_000_000_000n, // 1000 hGRAM
+        totalStaking: 5_000_000_000n,
+        totalUnstaking: 0n,
+        totalBorrowersStake: 0n,
+        parent: someAddress,
+        participations: Dictionary.empty(Dictionary.Keys.BigUint(32), participationDictionaryValue),
+        roundsImbalance: 255n,
+        stopped: false,
+        instantMint: false,
+        loanCodes: Dictionary.empty(),
+        previousRate: 1_078_000_000n,
+        currentRate: 1_080_000_000n,
+        halter: someAddress,
+        governor: someAddress,
+        proposedGovernor: null,
+        governanceFee: 4096n,
+        collectionCodes: Dictionary.empty(),
+        billCodes: Dictionary.empty(),
+        oldParents: Dictionary.empty(),
+    }
+}
+
+class FakeReader implements HipoReader {
+    participationRequests: bigint[] = []
+
+    getTimes(): Promise<Times> {
+        return Promise.resolve(fakeTimes())
+    }
+    getTreasuryState(): Promise<TreasuryConfig> {
+        return Promise.resolve(fakeState())
+    }
+    getTreasuryFees(): Promise<TreasuryFees> {
+        return Promise.resolve({ requestLoanFee: 1n, depositCoinsFee: 2n, unstakeAllTokensFee: 3n })
+    }
+    getParticipation(roundSince: bigint): Promise<Participation> {
+        this.participationRequests.push(roundSince)
+        return Promise.resolve({ state: 3, totalStaked: 7_000_000_000n, totalRecovered: 0n, stakeHeldUntil: 0n })
+    }
+    getMaxPunishment(): Promise<bigint> {
+        return Promise.resolve(101_000_000_000n)
+    }
+    getWalletStatus(): Promise<WalletStatus> {
+        return Promise.resolve({ deployed: false, tokens: 0n, staking: [], unstaking: 0n })
+    }
+    getLoanStatus(): Promise<LoanStatus> {
+        return Promise.resolve({ address: someAddress, deployed: false, balance: 0n })
+    }
+}
+
+void test('computeApy follows the showState formula', () => {
+    const apy = computeApy(1_080_000_000n, 1_078_000_000n, roundDuration)
+    const expected = Math.pow(1_080_000_000 / 1_078_000_000, (365 * 24 * 60 * 60) / roundDuration) - 1
+    assert.equal(apy, expected)
+    assert.ok(apy != null && apy > 0)
+})
+
+void test('computeApy guards zero previous rate', () => {
+    assert.equal(computeApy(1_080_000_000n, 0n, roundDuration), null)
+})
+
+void test('exchange rate reports totals ratio and disclaimer', async () => {
+    const result = (await getExchangeRate(new FakeReader())) as Record<string, unknown>
+    assert.equal(result['oneHgramInGram'], (1.08).toFixed(9))
+    assert.equal(result['totalCoinsGram'], '1080')
+    assert.equal(result['totalTokensHgram'], '1000')
+    assert.ok(typeof result['disclaimer'] === 'string' && result['disclaimer'].length > 0)
+})
+
+void test('participation defaults to the current round', async () => {
+    const reader = new FakeReader()
+    const result = (await getParticipation(reader, undefined)) as Record<string, unknown>
+    assert.deepEqual(reader.participationRequests, [fakeTimes().currentRoundSince])
+    assert.equal(result['state'], 'validating')
+    assert.equal(result['totalStakedGram'], '7')
+})
+
+void test('wallet status handles undeployed wallets', async () => {
+    const result = (await getWalletStatus(new FakeReader(), someAddress)) as Record<string, unknown>
+    assert.equal(result['deployed'], false)
+    assert.equal(result['hgramBalance'], '0')
+})
+
+void test('reward history reports missing configuration cleanly', async () => {
+    const result = (await getRewardHistory(undefined, someAddress)) as Record<string, unknown>
+    assert.ok(typeof result['error'] === 'string' && result['error'].includes('HIPO_REWARDS_API_BASE'))
+})
+
+void test('gram formatting round-trips', () => {
+    assert.equal(formatGram(1_500_000_000n), '1.5')
+    assert.equal(formatGram(0n), '0')
+    assert.equal(parseGram('1.5'), 1_500_000_000n)
+    assert.equal(parseGram('300000'), 300_000_000_000_000n)
+    assert.throws(() => parseGram('abc'))
+    assert.throws(() => parseGram('1.1234567891'))
+})
