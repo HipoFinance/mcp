@@ -1,21 +1,8 @@
-import { Address, Dictionary, TonClient, TupleBuilder } from '@ton/ton'
-import {
-    Parent,
-    Participation,
-    Treasury,
-    TreasuryConfig,
-    Times,
-    Wallet,
-    requestDictionaryValue,
-    sortedDictionaryValue,
-} from '@hipo-finance/sdk'
+import { Address, TonClient } from '@ton/ton'
+import { Parent, Participation, Treasury, TreasuryConfig, TreasuryFees, Times, Wallet } from '@hipo-finance/sdk'
 import { Config, treasuryAddress } from './config.js'
 
-export interface TreasuryFees {
-    requestLoanFee: bigint
-    depositCoinsFee: bigint
-    unstakeAllTokensFee: bigint
-}
+export type { TreasuryFees } from '@hipo-finance/sdk'
 
 export interface WalletStatus {
     deployed: boolean
@@ -47,67 +34,38 @@ export interface HipoReader {
 
 export class TonReader implements HipoReader {
     private readonly client: TonClient
-    private readonly treasury: Address
+    private readonly treasury: Treasury
 
     constructor(config: Config) {
         this.client = new TonClient({
             endpoint: config.toncenterEndpoint,
             apiKey: config.toncenterApiKey,
         })
-        this.treasury = treasuryAddress(config.network)
+        this.treasury = Treasury.createFromAddress(treasuryAddress(config.network))
+    }
+
+    private openTreasury() {
+        return this.client.open(this.treasury)
     }
 
     async getTimes(): Promise<Times> {
-        return await this.client.open(Treasury.createFromAddress(this.treasury)).getTimes()
+        return await this.openTreasury().getTimes()
     }
 
     async getTreasuryState(): Promise<TreasuryConfig> {
-        return await this.client.open(Treasury.createFromAddress(this.treasury)).getTreasuryState()
+        return await this.openTreasury().getTreasuryState()
     }
 
     async getTreasuryFees(ownershipAssignedAmount: bigint): Promise<TreasuryFees> {
-        const tb = new TupleBuilder()
-        tb.writeNumber(ownershipAssignedAmount)
-        const { stack } = await this.client.provider(this.treasury).get('get_treasury_fees', tb.build())
-        return {
-            requestLoanFee: stack.readBigNumber(),
-            depositCoinsFee: stack.readBigNumber(),
-            unstakeAllTokensFee: stack.readBigNumber(),
-        }
+        return await this.openTreasury().getTreasuryFees(ownershipAssignedAmount)
     }
 
-    // Stack layout mirrors wrappers/Treasury.ts getParticipation in the contract repo.
     async getParticipation(roundSince: bigint): Promise<Participation> {
-        const tb = new TupleBuilder()
-        tb.writeNumber(roundSince)
-        const { stack } = await this.client.provider(this.treasury).get('get_participation', tb.build())
-        return {
-            state: stack.readNumber(),
-            size: stack.readBigNumber(),
-            sorted: Dictionary.loadDirect(Dictionary.Keys.BigUint(112), sortedDictionaryValue, stack.readCellOpt()),
-            requests: Dictionary.loadDirect(Dictionary.Keys.BigUint(256), requestDictionaryValue, stack.readCellOpt()),
-            rejected: Dictionary.loadDirect(Dictionary.Keys.BigUint(256), requestDictionaryValue, stack.readCellOpt()),
-            accepted: Dictionary.loadDirect(Dictionary.Keys.BigUint(256), requestDictionaryValue, stack.readCellOpt()),
-            accrued: Dictionary.loadDirect(Dictionary.Keys.BigUint(256), requestDictionaryValue, stack.readCellOpt()),
-            staked: Dictionary.loadDirect(Dictionary.Keys.BigUint(256), requestDictionaryValue, stack.readCellOpt()),
-            recovering: Dictionary.loadDirect(
-                Dictionary.Keys.BigUint(256),
-                requestDictionaryValue,
-                stack.readCellOpt(),
-            ),
-            totalStaked: stack.readBigNumber(),
-            totalRecovered: stack.readBigNumber(),
-            currentVsetHash: stack.readBigNumber(),
-            stakeHeldFor: stack.readBigNumber(),
-            stakeHeldUntil: stack.readBigNumber(),
-        }
+        return await this.openTreasury().getParticipation(roundSince)
     }
 
     async getMaxPunishment(stake: bigint): Promise<bigint> {
-        const tb = new TupleBuilder()
-        tb.writeNumber(stake)
-        const { stack } = await this.client.provider(this.treasury).get('get_max_punishment', tb.build())
-        return stack.readBigNumber()
+        return await this.openTreasury().getMaxPunishment(stake)
     }
 
     async getWalletStatus(owner: Address): Promise<WalletStatus> {
@@ -129,25 +87,26 @@ export class TonReader implements HipoReader {
     }
 
     async getLoanStatus(borrower: Address, roundSince: bigint): Promise<LoanStatus> {
-        const tb = new TupleBuilder()
-        tb.writeAddress(borrower)
-        tb.writeNumber(roundSince)
-        const { stack } = await this.client.provider(this.treasury).get('get_loan_address', tb.build())
-        const loanAddress = stack.readAddress()
+        const loanAddress = await this.openTreasury().getLoanAddress(borrower, roundSince)
         const provider = this.client.provider(loanAddress)
         const contractState = await provider.getState()
         if (contractState.state.type !== 'active') {
             return { address: loanAddress, deployed: false, balance: contractState.balance }
         }
-        const { stack: loanStack } = await provider.get('get_loan_state', [])
+        // Loan state layout mirrors wrappers/Loan.ts in the contract repo:
+        // elector, treasury, borrower, round_since.
+        const { stack } = await provider.get('get_loan_state', [])
+        const elector = stack.readAddress()
+        stack.readAddress() // treasury
+        const loanBorrower = stack.readAddress()
+        const loanRoundSince = stack.readBigNumber()
         return {
             address: loanAddress,
             deployed: true,
             balance: contractState.balance,
-            elector: loanStack.readAddress(),
-            treasury: loanStack.readAddress(),
-            borrower: loanStack.readAddress(),
-            roundSince: loanStack.readBigNumber(),
-        } as LoanStatus & { treasury: Address }
+            elector,
+            borrower: loanBorrower,
+            roundSince: loanRoundSince,
+        }
     }
 }
