@@ -21,7 +21,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
         network,
         toncenterEndpoint: env['TONCENTER_ENDPOINT'] ?? defaultEndpoint,
         toncenterApiKey: env['TONCENTER_API_KEY'],
-        rewardsApiBase: env['HIPO_REWARDS_API_BASE'],
+        rewardsApiBase: env['HIPO_REWARDS_API_BASE'] ?? 'https://api.hipogang.io',
         docsCacheSeconds: Number(env['HIPO_DOCS_CACHE_SECONDS'] ?? 300),
     }
 }

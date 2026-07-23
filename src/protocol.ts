@@ -131,13 +131,20 @@ export async function getRewardHistory(rewardsApiBase: string | undefined, owner
             hint: 'Use get_wallet_status for the current position, or stats.hipo.finance for historical charts.',
         }
     }
-    const url = `${rewardsApiBase.replace(/\/$/, '')}/hton/rewards/${owner.toString()}`
+    const url = `${rewardsApiBase.replace(/\/$/, '')}/wallet-rewards?address=${encodeURIComponent(owner.toString())}`
     const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
     if (!response.ok) {
         throw new Error(`rewards API returned ${response.status.toString()}`)
     }
-    const body: unknown = await response.json()
-    return { rewards: body, disclaimer }
+    const body = (await response.json()) as { ok?: boolean; result?: unknown; error?: unknown }
+    if (body.ok !== true) {
+        throw new Error(`rewards API error: ${JSON.stringify(body.error ?? body)}`)
+    }
+    return {
+        rewards: body.result,
+        note: 'Per-round rewards from the Hipo rewards API, including Hipo Club HPO rewards where applicable.',
+        disclaimer,
+    }
 }
 
 export async function getParticipation(reader: HipoReader, roundSince: bigint | undefined): Promise<object> {
