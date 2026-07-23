@@ -97,6 +97,10 @@ docker build -t hipo-mcp .
 docker run -p 3000:3000 -e TONCENTER_API_KEY=... hipo-mcp
 ```
 
+```sh
+docker build -t ghcr.io/hipogang/mcp:latest . && docker push ghcr.io/hipogang/mcp:latest
+```
+
 ## Source of truth
 
 Contract addresses and protocol documentation come from the [contract repository](https://github.com/HipoFinance/contract); its README is the source of truth for deployed addresses. Live numbers are read from contract getters — this server never re-implements protocol math.
