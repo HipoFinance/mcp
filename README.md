@@ -72,7 +72,9 @@ All configuration is optional; defaults target mainnet through public toncenter.
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
 | `TONCENTER_ENDPOINT` | `https://toncenter.com/api/v2/jsonRPC` | TON HTTP API endpoint |
-| `TONCENTER_API_KEY` | (none) | toncenter API key; without one the public rate limit applies |
+| `TONCENTER_API_KEY` | (none) | toncenter API key; without one the public rate limit applies (calls are retried with backoff) |
+| `TONCENTER_API_KEY_FILE` | (none) | Path to a file holding the API key (e.g. a docker secret); takes precedence over `TONCENTER_API_KEY` |
+| `HIPO_STATE_CACHE_SECONDS` | `5` | TTL for cached treasury state/times/fees between tool calls |
 | `HIPO_NETWORK` | `mainnet` | `mainnet` or `testnet` |
 | `HIPO_REWARDS_API_BASE` | `https://api.hipogang.io` | Base URL of the Hipo rewards API (`/wallet-rewards`); set empty to disable `get_reward_history` |
 | `HIPO_DOCS_CACHE_SECONDS` | `300` | Docs resource cache TTL |

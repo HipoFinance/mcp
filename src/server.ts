@@ -24,7 +24,7 @@ async function run(fn: () => Promise<object>) {
 }
 
 export function buildServer(reader: HipoReader, config: Config): McpServer {
-    const server = new McpServer({ name: 'hipo', version: '0.1.0' })
+    const server = new McpServer({ name: 'hipo', version: '0.1.1' })
 
     for (const doc of docSources) {
         server.registerResource(

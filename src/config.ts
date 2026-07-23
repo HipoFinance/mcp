@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { Address } from '@ton/ton'
 import { treasuryAddresses } from '@hipo-finance/sdk'
 
@@ -9,6 +10,18 @@ export interface Config {
     toncenterApiKey?: string
     rewardsApiBase?: string
     docsCacheSeconds: number
+    stateCacheSeconds: number
+}
+
+// Reads NAME_FILE (a path, e.g. a docker secret under /run/secrets) if set,
+// falling back to NAME. Empty values count as unset.
+function readSecret(env: NodeJS.ProcessEnv, name: string): string | undefined {
+    const file = env[`${name}_FILE`]
+    if (file != null && file !== '') {
+        return readFileSync(file, 'utf8').trim()
+    }
+    const value = env[name]
+    return value == null || value === '' ? undefined : value
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -20,9 +33,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     return {
         network,
         toncenterEndpoint: env['TONCENTER_ENDPOINT'] ?? defaultEndpoint,
-        toncenterApiKey: env['TONCENTER_API_KEY'],
+        toncenterApiKey: readSecret(env, 'TONCENTER_API_KEY'),
         rewardsApiBase: env['HIPO_REWARDS_API_BASE'] ?? 'https://api.hipogang.io',
         docsCacheSeconds: Number(env['HIPO_DOCS_CACHE_SECONDS'] ?? 300),
+        stateCacheSeconds: Number(env['HIPO_STATE_CACHE_SECONDS'] ?? 5),
     }
 }
 
