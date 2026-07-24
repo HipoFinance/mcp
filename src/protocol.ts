@@ -98,7 +98,12 @@ export async function getFees(reader: HipoReader): Promise<object> {
         depositCoinsFeeGram: formatGram(fees.depositCoinsFee),
         unstakeAllTokensFeeGram: formatGram(fees.unstakeAllTokensFee),
         requestLoanFeeGram: formatGram(fees.requestLoanFee),
-        note: 'Fees are gas prepayments; unused remainder is returned as excess. There is no protocol deposit fee taken from the staked amount.',
+        notes: [
+            'Fees are gas prepayments, not protocol fees; there is no fee taken from the staked amount.',
+            'Deposit: attach the deposit fee on top of the staked amount; the unused gas returns shortly after as a separate excess transfer.',
+            'Unstake: attach the unstake fee with the token burn; little or none returns at request time — the unused remainder is paid out together with the final GRAM withdrawal, so a raw withdrawal payout slightly overstates the pure staking reward.',
+            'To measure a wallet’s real return, net all flows per cycle: (deposits sent − deposit refunds) versus (request-time refunds + withdrawal payout).',
+        ],
         disclaimer,
     }
 }
@@ -118,7 +123,7 @@ export async function getWalletStatus(reader: HipoReader, owner: Address): Promi
         })),
         pendingUnstakeHgram: formatGram(status.unstaking),
         note: status.deployed
-            ? 'Pending stakes mint hGRAM when their round finishes; pending unstakes pay out GRAM at the rate current when their bill burns.'
+            ? 'Pending stakes mint hGRAM when their round finishes; pending unstakes pay out GRAM at the rate current when their bill burns. The unstake payout also carries the unused part of the unstake gas prepayment, so the incoming transfer is stake value plus gas remainder, not reward alone.'
             : 'No hGRAM wallet is deployed for this address yet.',
         disclaimer,
     }

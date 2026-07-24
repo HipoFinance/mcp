@@ -6,6 +6,7 @@ import { formatGram, parseGram } from './format.js'
 import {
     computeApy,
     getExchangeRate,
+    getFees,
     getParticipation,
     getRewardHistory,
     getWalletStatus,
@@ -109,6 +110,29 @@ void test('wallet status handles undeployed wallets', async () => {
     const result = (await getWalletStatus(new FakeReader(), someAddress)) as Record<string, unknown>
     assert.equal(result['deployed'], false)
     assert.equal(result['hgramBalance'], '0')
+})
+
+void test('fees explain refund timing alongside getter-sourced amounts', async () => {
+    const result = (await getFees(new FakeReader())) as Record<string, unknown>
+    assert.equal(result['depositCoinsFeeGram'], formatGram(2n))
+    assert.equal(result['unstakeAllTokensFeeGram'], formatGram(3n))
+    const notes = result['notes']
+    assert.ok(Array.isArray(notes))
+    assert.ok(notes.some((n: string) => n.includes('gas prepayments')))
+    assert.ok(notes.some((n: string) => n.includes('separate excess transfer')))
+    assert.ok(notes.some((n: string) => n.includes('paid out together with the final GRAM withdrawal')))
+    assert.ok(notes.some((n: string) => n.includes('net all flows')))
+})
+
+void test('wallet status note mentions the gas remainder in unstake payouts', async () => {
+    class DeployedReader extends FakeReader {
+        override getWalletStatus(): Promise<WalletStatus> {
+            return Promise.resolve({ deployed: true, tokens: 1_000_000_000n, staking: [], unstaking: 500_000_000n })
+        }
+    }
+    const result = (await getWalletStatus(new DeployedReader(), someAddress)) as Record<string, unknown>
+    assert.equal(result['deployed'], true)
+    assert.ok(typeof result['note'] === 'string' && result['note'].includes('unused part of the unstake gas prepayment'))
 })
 
 void test('reward history reports missing configuration cleanly', async () => {
