@@ -96,7 +96,7 @@ export function buildServer(reader: HipoReader, config: Config): McpServer {
         {
             title: 'Reward history',
             description:
-                "A user's historical Hipo staking rewards per validation round, including Hipo Club level and HPO rewards, from the Hipo rewards API.",
+                "A user's historical Hipo staking rewards per validation round, plus Hipo Club level and HPO rewards, from the Hipo rewards API. Club levels are seasonal (seasons run for months) and are reported starting at level 1, matching the Hipo app.",
             inputSchema: { address: z.string().describe('TON address of the user (owner), any standard form') },
         },
         ({ address }) => run(() => protocol.getRewardHistory(config.rewardsApiBase, parseAddress(address, 'address'))),

@@ -10,6 +10,7 @@ import {
     getParticipation,
     getRewardHistory,
     getWalletStatus,
+    normalizeClubLevel,
 } from './protocol.js'
 import { HipoReader, LoanStatus, TreasuryFees, WalletStatus } from './reader.js'
 
@@ -138,6 +139,46 @@ void test('wallet status note mentions the gas remainder in unstake payouts', as
 void test('reward history reports missing configuration cleanly', async () => {
     const result = (await getRewardHistory(undefined, someAddress)) as Record<string, unknown>
     assert.ok(typeof result['error'] === 'string' && result['error'].includes('HIPO_REWARDS_API_BASE'))
+})
+
+// Shape taken from a live api.hipogang.io/wallet-rewards response.
+function fakeRewards(clubLevel: unknown): Record<string, unknown> {
+    return {
+        club_level: clubLevel,
+        reward_coefficients: [1, 1.2, 1.6, 2.2, 3, 4, 5.2, 6.6, 8.2, 10],
+        hton_hpo_reward_rate: 0.0021902,
+        hpo_sum_rewards: '0.000000000',
+        hton_sum_rewards: '0.371671463',
+        earned_rewards: [{ round_since: 1785745160, stake_reward: '0.000606966', hpo_reward: '0.004289492' }],
+    }
+}
+
+void test('club level is reported the way the app shows it, starting at level 1', () => {
+    const raw = fakeRewards(6)
+    const normalized = normalizeClubLevel(raw) as Record<string, unknown>
+    assert.equal(normalized['club_level'], 7)
+    assert.equal(normalized['hton_sum_rewards'], '0.371671463')
+    assert.deepEqual(normalized['earned_rewards'], raw['earned_rewards'])
+    assert.equal(raw['club_level'], 6)
+
+    assert.equal((normalizeClubLevel(fakeRewards(0)) as Record<string, unknown>)['club_level'], 1)
+    assert.equal((normalizeClubLevel(fakeRewards(9)) as Record<string, unknown>)['club_level'], 10)
+})
+
+void test('the club level coefficient is resolved against the zero-indexed list', () => {
+    // Raw level 6 is the seventh coefficient, not reward_coefficients[7].
+    assert.equal((normalizeClubLevel(fakeRewards(6)) as Record<string, unknown>)['club_level_reward_coefficient'], 5.2)
+    assert.equal((normalizeClubLevel(fakeRewards(0)) as Record<string, unknown>)['club_level_reward_coefficient'], 1)
+    assert.equal((normalizeClubLevel(fakeRewards(9)) as Record<string, unknown>)['club_level_reward_coefficient'], 10)
+})
+
+void test('club level normalization leaves unexpected payloads alone', () => {
+    assert.deepEqual(normalizeClubLevel({ earned_rewards: [] }), { earned_rewards: [] })
+    assert.deepEqual(normalizeClubLevel(fakeRewards(null)), fakeRewards(null))
+    assert.equal(normalizeClubLevel(null), null)
+    const noCoefficients = normalizeClubLevel({ club_level: 6 }) as Record<string, unknown>
+    assert.equal(noCoefficients['club_level'], 7)
+    assert.equal(noCoefficients['club_level_reward_coefficient'], null)
 })
 
 void test('gram formatting round-trips', () => {

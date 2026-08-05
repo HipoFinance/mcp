@@ -129,6 +129,27 @@ export async function getWalletStatus(reader: HipoReader, owner: Address): Promi
     }
 }
 
+// The rewards API reports the Hipo Club level zero-indexed, while the Hipo app
+// shows levels starting at 1, so a raw club_level of 6 is "Club Level 7" to the
+// user. reward_coefficients is a per-level list in that same zero-indexed order,
+// so the wallet's own coefficient is resolved here, before the level is shifted:
+// after shifting, reward_coefficients[club_level] would name the tier above.
+export function normalizeClubLevel(result: unknown): unknown {
+    if (typeof result !== 'object' || result === null) {
+        return result
+    }
+    const { club_level: rawLevel, ...rest } = result as Record<string, unknown>
+    if (typeof rawLevel !== 'number') {
+        return result
+    }
+    const coefficients = rest['reward_coefficients']
+    return {
+        club_level: rawLevel + 1,
+        club_level_reward_coefficient: Array.isArray(coefficients) ? (coefficients[rawLevel] ?? null) : null,
+        ...rest,
+    }
+}
+
 export async function getRewardHistory(rewardsApiBase: string | undefined, owner: Address): Promise<object> {
     if (rewardsApiBase == null || rewardsApiBase === '') {
         return {
@@ -146,8 +167,11 @@ export async function getRewardHistory(rewardsApiBase: string | undefined, owner
         throw new Error(`rewards API error: ${JSON.stringify(body.error ?? body)}`)
     }
     return {
-        rewards: body.result,
-        note: 'Per-round rewards from the Hipo rewards API, including Hipo Club HPO rewards where applicable.',
+        rewards: normalizeClubLevel(body.result),
+        note:
+            'Per-round rewards from the Hipo rewards API, including Hipo Club HPO rewards where applicable. ' +
+            'club_level is reported the way the Hipo app shows it, starting at level 1, and applies to the current Hipo Club season (seasons run for months, not per round). ' +
+            'reward_coefficients lists every level in order starting at level 1; club_level_reward_coefficient is the one that applies to this wallet.',
         disclaimer,
     }
 }
