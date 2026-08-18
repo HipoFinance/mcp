@@ -6,8 +6,14 @@ import { HipoReader } from './reader.js'
 
 const yearSeconds = 365 * 24 * 60 * 60
 
+// The SDK's ParticipationState enum uses CamelCase members (e.g. ReadyToBurn); convert to
+// snake_case to match the naming used elsewhere (contract constants, borrower daemon, docs).
 function participationStateName(state: ParticipationState | undefined): string {
-    return state == null ? 'unknown' : (ParticipationState[state] ?? 'unknown').toLowerCase()
+    if (state == null) {
+        return 'unknown'
+    }
+    const name = ParticipationState[state]
+    return name == null ? 'unknown' : name.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()
 }
 
 // APY from on-chain rates only, per the showState formula

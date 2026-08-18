@@ -55,6 +55,7 @@ function fakeState(): TreasuryConfig {
 
 class FakeReader implements HipoReader {
     participationRequests: bigint[] = []
+    participationState = 3
 
     getTimes(): Promise<Times> {
         return Promise.resolve(fakeTimes())
@@ -67,7 +68,12 @@ class FakeReader implements HipoReader {
     }
     getParticipation(roundSince: bigint): Promise<Participation> {
         this.participationRequests.push(roundSince)
-        return Promise.resolve({ state: 3, totalStaked: 7_000_000_000n, totalRecovered: 0n, stakeHeldUntil: 0n })
+        return Promise.resolve({
+            state: this.participationState,
+            totalStaked: 7_000_000_000n,
+            totalRecovered: 0n,
+            stakeHeldUntil: 0n,
+        })
     }
     getMaxPunishment(): Promise<bigint> {
         return Promise.resolve(101_000_000_000n)
@@ -105,6 +111,20 @@ void test('participation defaults to the current round', async () => {
     assert.deepEqual(reader.participationRequests, [fakeTimes().currentRoundSince])
     assert.equal(result['state'], 'validating')
     assert.equal(result['totalStakedGram'], '7')
+})
+
+void test('participation renders the ready-to-burn state in snake_case', async () => {
+    const reader = new FakeReader()
+    reader.participationState = 6
+    const result = (await getParticipation(reader, undefined)) as Record<string, unknown>
+    assert.equal(result['state'], 'ready_to_burn')
+})
+
+void test('participation renders the burning state after the ready-to-burn insertion', async () => {
+    const reader = new FakeReader()
+    reader.participationState = 7
+    const result = (await getParticipation(reader, undefined)) as Record<string, unknown>
+    assert.equal(result['state'], 'burning')
 })
 
 void test('wallet status handles undeployed wallets', async () => {
