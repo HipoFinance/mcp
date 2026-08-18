@@ -1,0 +1,88 @@
+name: Build and push image
+
+# Replaces the manual `docker build && docker push` from a laptop. GITHUB_TOKEN
+# can write to GHCR on its own, so no personal access token is involved — which
+# is why the image moved from ghcr.io/hipogang/mcp to ghcr.io/hipofinance/mcp:
+# a repository's token can only push to packages owned by its own organization.
+# Same shape as the gauge, hpo-trader and prometheus_bot workflows.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # The Dockerfile runs `npm run build`, so a type error would fail the image
+  # build anyway. This job adds the unit tests, which the image build does not
+  # run, so a broken server is never published.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+  image:
+    name: Build and push
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/hipofinance/mcp
+          # Date tag (date -I, Tehran time) is what stack/mcp.yaml pins, matching
+          # every other service in the operation repo. The sha tag is the
+          # immutable one to pin and roll back to. No `latest`: this image used
+          # to be deployed as :latest, which made a deploy non-deterministic and
+          # left nothing to roll back to.
+          tags: |
+            type=raw,value={{date 'YYYY-MM-DD' tz='Asia/Tehran'}}
+            type=sha,format=short,prefix=sha-
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          {
+            echo "### Image pushed"
+            echo
+            echo '```'
+            echo "$TAGS"
+            echo '```'
+            echo
+            echo "Update \`stack/mcp.yaml\` in the operation repo, then redeploy."
+          } >> "$GITHUB_STEP_SUMMARY"

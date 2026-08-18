@@ -97,9 +97,11 @@ docker build -t hipo-mcp .
 docker run -p 3000:3000 -e TONCENTER_API_KEY=... hipo-mcp
 ```
 
-```sh
-docker build -t ghcr.io/hipogang/mcp:latest . && docker push ghcr.io/hipogang/mcp:latest
-```
+Published images are built by CI, not from a laptop. Every push to `main` runs
+`.github/workflows/build.yml`, which runs the tests, then builds and pushes
+`ghcr.io/hipofinance/mcp` tagged with the date and the short commit sha. To
+deploy, point `stack/mcp.yaml` in the operation repo at the new date tag and
+redeploy the stack.
 
 ## Source of truth
 
