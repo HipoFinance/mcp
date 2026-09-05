@@ -47,6 +47,7 @@ function fakeState(): TreasuryConfig {
         governor: someAddress,
         proposedGovernor: null,
         governanceFee: 4096n,
+        borrowerFee: 0n,
         collectionCodes: Dictionary.empty(),
         billCodes: Dictionary.empty(),
         oldParents: Dictionary.empty(),

@@ -72,6 +72,7 @@ export async function getTreasuryState(reader: HipoReader): Promise<object> {
         halted: state.stopped,
         instantMint: state.instantMint,
         governanceFee: formatPercent(Number(state.governanceFee) / 65535),
+        borrowerFee: formatPercent(Number(state.borrowerFee) / 65535),
         roundsImbalance: formatPercent((Number(state.roundsImbalance) + 1 + 256) / 512),
         disclaimer,
     }
