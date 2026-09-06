@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Address, Dictionary } from '@ton/ton'
 import { Participation, Times, TreasuryConfig, participationDictionaryValue } from '@hipo-finance/sdk'
-import { formatGram, parseGram } from './format.js'
+import { formatGram, formatPercent, parseGram } from './format.js'
 import {
     computeApy,
     getExchangeRate,
@@ -35,6 +35,7 @@ function fakeState(): TreasuryConfig {
         totalStaking: 5_000_000_000n,
         totalUnstaking: 0n,
         totalBorrowersStake: 0n,
+        deficit: 0n,
         parent: someAddress,
         participations: Dictionary.empty(Dictionary.Keys.BigUint(32), participationDictionaryValue),
         roundsImbalance: 255n,
@@ -43,6 +44,10 @@ function fakeState(): TreasuryConfig {
         loanCodes: Dictionary.empty(),
         previousRate: 1_078_000_000n,
         currentRate: 1_080_000_000n,
+        // The interval those two rates grew over, which the treasury measured. Same value as the
+        // round length here, since this fixture is a pool that lent into every round.
+        roundDuration: BigInt(roundDuration),
+        lastSettledRound: 1784696584n,
         halter: someAddress,
         governor: someAddress,
         proposedGovernor: null,
@@ -57,12 +62,19 @@ function fakeState(): TreasuryConfig {
 class FakeReader implements HipoReader {
     participationRequests: bigint[] = []
     participationState = 3
+    timesReads = 0
+    roundDurationOverride?: bigint
 
     getTimes(): Promise<Times> {
+        this.timesReads += 1
         return Promise.resolve(fakeTimes())
     }
     getTreasuryState(): Promise<TreasuryConfig> {
-        return Promise.resolve(fakeState())
+        const state = fakeState()
+        if (this.roundDurationOverride != null) {
+            state.roundDuration = this.roundDurationOverride
+        }
+        return Promise.resolve(state)
     }
     getTreasuryFees(): Promise<TreasuryFees> {
         return Promise.resolve({ requestLoanFee: 1n, depositCoinsFee: 2n, unstakeAllTokensFee: 3n })
@@ -104,6 +116,30 @@ void test('exchange rate reports totals ratio and disclaimer', async () => {
     assert.equal(result['totalCoinsGram'], '1080')
     assert.equal(result['totalTokensHgram'], '1000')
     assert.ok(typeof result['disclaimer'] === 'string' && result['disclaimer'].length > 0)
+})
+
+// The exchange rate tool used to pair get_treasury_state with get_times purely to get an APY
+// denominator. It reads the treasury's own round_duration now, so it must not call get_times at all
+// -- and the APY must be the one that interval implies, not one derived from a round length.
+void test('exchange rate takes its APY interval from the state, without reading times', async () => {
+    const reader = new FakeReader()
+    const result = (await getExchangeRate(reader)) as Record<string, unknown>
+    assert.equal(reader.timesReads, 0)
+    assert.equal(
+        result['recentApy'],
+        formatPercent(computeApy(1_080_000_000n, 1_078_000_000n, roundDuration) ?? 0),
+    )
+})
+
+// A skipped round widens the interval the rates grew over, and the reported APY has to fall with it
+// -- reporting the same number would be the bug this field exists to fix.
+void test('exchange rate reports a lower APY when the measured interval spans two rounds', async () => {
+    const reader = new FakeReader()
+    reader.roundDurationOverride = BigInt(2 * roundDuration)
+    const twoRounds = (await getExchangeRate(reader)) as Record<string, unknown>
+    const oneRound = (await getExchangeRate(new FakeReader())) as Record<string, unknown>
+    const parse = (value: unknown) => Number(String(value).replace('%', ''))
+    assert.ok(parse(twoRounds['recentApy']) < parse(oneRound['recentApy']))
 })
 
 void test('participation defaults to the current round', async () => {

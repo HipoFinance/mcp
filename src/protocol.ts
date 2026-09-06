@@ -18,8 +18,10 @@ function participationStateName(state: ParticipationState | undefined): string {
 
 // APY from on-chain rates only, per the showState formula
 // (contract repo, docs/specs/2026-07-16-showstate-apy-formula.md):
-// growth = current_rate / previous_rate per round length, compounded to a year.
-// Assumes Hipo validates on both round chains, so the rate updates once per round length.
+// growth = current_rate / previous_rate over the interval those two describe, compounded to a year.
+// That interval is round_duration, which the treasury measures between its last two settlements --
+// not a round length. The rates only move when a round the pool lent into settles, so a skipped
+// round widens the interval rather than passing unnoticed.
 export function computeApy(currentRate: bigint, previousRate: bigint, roundDurationSeconds: number): number | null {
     if (previousRate <= 0n || roundDurationSeconds <= 0) {
         return null
@@ -29,10 +31,9 @@ export function computeApy(currentRate: bigint, previousRate: bigint, roundDurat
 }
 
 export async function getExchangeRate(reader: HipoReader): Promise<object> {
-    const [state, times] = await Promise.all([reader.getTreasuryState(), reader.getTimes()])
+    const state = await reader.getTreasuryState()
     const rate = Number(state.totalCoins) / Number(state.totalTokens)
-    const roundDuration = Number(times.nextRoundSince - times.currentRoundSince)
-    const apy = computeApy(state.currentRate, state.previousRate, roundDuration)
+    const apy = computeApy(state.currentRate, state.previousRate, Number(state.roundDuration))
     return {
         oneHgramInGram: rate.toFixed(9),
         oneGramInHgram: (1 / rate).toFixed(9),
@@ -68,16 +69,31 @@ export async function getTreasuryState(reader: HipoReader): Promise<object> {
         pendingDepositsGram: formatGram(state.totalStaking),
         pendingUnstakesHgram: formatGram(state.totalUnstaking),
         totalBorrowersStakeGram: formatGram(state.totalBorrowersStake),
+        deficitGram: formatGram(state.deficit),
+        deficitNote:
+            'Pool money that defaulting borrowers walked away with, since the governor last cleared ' +
+            'the counter. The exchange rate never moves down for a loss, so this is where an ' +
+            'uncovered shortfall is recorded instead. Zero is the normal value.',
         participations,
         halted: state.stopped,
         instantMint: state.instantMint,
         governanceFee: formatPercent(Number(state.governanceFee) / 65535),
         borrowerFee: formatPercent(Number(state.borrowerFee) / 65535),
         roundsImbalance: formatPercent((Number(state.roundsImbalance) + 1 + 256) / 512),
+        rateIntervalSeconds: Number(state.roundDuration),
+        lastSettledRound:
+            state.lastSettledRound === 0n ? null : formatTime(state.lastSettledRound),
+        rateIntervalNote:
+            'rateIntervalSeconds is how long current_rate took to grow from previous_rate, and ' +
+            'lastSettledRound is the round whose reward is in current_rate. A gap of more than one ' +
+            'round length between that round and the current one means the pool skipped rounds.',
         disclaimer,
     }
 }
 
+// Round timing from the network config. roundDurationSeconds here is the LENGTH of a round, which
+// is not the same as the interval the rate pair grew over -- get_exchange_rate uses the treasury's
+// own round_duration for that, and the two differ whenever the pool skipped a round.
 export async function getRoundTiming(reader: HipoReader): Promise<object> {
     const times = await reader.getTimes()
     const roundDuration = Number(times.nextRoundSince - times.currentRoundSince)

@@ -44,7 +44,7 @@ Or in a `mcpServers` configuration:
 | Tool | Description |
 | --- | --- |
 | `get_exchange_rate` | Current hGRAM↔GRAM rate, plus recent APY derived from on-chain rate updates |
-| `get_treasury_state` | TVL, hGRAM supply, pending deposits/unstakes, round participations, governance parameters |
+| `get_treasury_state` | TVL, hGRAM supply, pending deposits/unstakes, the deficit counter, round participations, governance parameters, and the interval behind the current exchange rate |
 | `get_round_timing` | Current/next validation round boundaries, election window, stake freeze duration |
 | `get_fees` | Current gas fees for deposit, unstake, and loan requests |
 | `get_wallet_status` | A user's hGRAM balance, its GRAM value, and pending stakes/unstakes |
