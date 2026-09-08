@@ -55,13 +55,15 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/hipofinance/mcp
-          # Date tag (date -I, Tehran time) is what stack/mcp.yaml pins, matching
-          # every other service in the operation repo. The sha tag is the
-          # immutable one to pin and roll back to. No `latest`: this image used
-          # to be deployed as :latest, which made a deploy non-deterministic and
-          # left nothing to roll back to.
+          # Only a sha tag. The dated tag was removed on 2026-09-08 because it is MUTABLE and
+          # collides: it is stamped in Tehran time, so an image pushed after 20:30 UTC lands on the
+          # NEXT day's tag and takes that name off an earlier image. That really happened -- gauge's
+          # http-timeout build ended up reachable by no dated tag at all. A sha tag names the commit
+          # it was built from and is never reassigned, and operation/bump.sh pins by it.
+          #
+          # Still no `latest`: this image used to be deployed as :latest, which made a deploy
+          # non-deterministic and left nothing to roll back to.
           tags: |
-            type=raw,value={{date 'YYYY-MM-DD' tz='Asia/Tehran'}}
             type=sha,format=short,prefix=sha-
 
       - uses: docker/build-push-action@v7
