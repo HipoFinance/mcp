@@ -19,21 +19,22 @@ function participationStateName(state: ParticipationState | undefined): string {
 // APY from on-chain rates only, per the showState formula
 // (contract repo, docs/specs/2026-07-16-showstate-apy-formula.md):
 // growth = current_rate / previous_rate over the interval those two describe, compounded to a year.
-// That interval is round_duration, which the treasury measures between its last two settlements --
-// not a round length. The rates only move when a round the pool lent into settles, so a skipped
-// round widens the interval rather than passing unnoticed.
-export function computeApy(currentRate: bigint, previousRate: bigint, roundDurationSeconds: number): number | null {
-    if (previousRate <= 0n || roundDurationSeconds <= 0) {
+// That interval is window_duration, which the treasury measures across its last two settlement
+// RELEASES -- about two rounds, and never a round length. Dividing by a round length would roughly
+// square the result; it would also report an unchanged APY for a pool that had fallen to
+// validating every other round, since the rates only move when a round the pool lent into settles.
+export function computeApy(currentRate: bigint, previousRate: bigint, windowSeconds: number): number | null {
+    if (previousRate <= 0n || windowSeconds <= 0) {
         return null
     }
     const growth = Number(currentRate) / Number(previousRate)
-    return Math.pow(growth, yearSeconds / roundDurationSeconds) - 1
+    return Math.pow(growth, yearSeconds / windowSeconds) - 1
 }
 
 export async function getExchangeRate(reader: HipoReader): Promise<object> {
     const state = await reader.getTreasuryState()
     const rate = Number(state.totalCoins) / Number(state.totalTokens)
-    const apy = computeApy(state.currentRate, state.previousRate, Number(state.roundDuration))
+    const apy = computeApy(state.currentRate, state.previousRate, Number(state.windowDuration))
     return {
         oneHgramInGram: rate.toFixed(9),
         oneGramInHgram: (1 / rate).toFixed(9),
@@ -80,20 +81,23 @@ export async function getTreasuryState(reader: HipoReader): Promise<object> {
         governanceFee: formatPercent(Number(state.governanceFee) / 65535),
         borrowerFee: formatPercent(Number(state.borrowerFee) / 65535),
         roundsImbalance: formatPercent((Number(state.roundsImbalance) + 1 + 256) / 512),
-        rateIntervalSeconds: Number(state.roundDuration),
+        rateIntervalSeconds: Number(state.windowDuration),
         lastSettledRound:
             state.lastSettledRound === 0n ? null : formatTime(state.lastSettledRound),
         rateIntervalNote:
-            'rateIntervalSeconds is how long current_rate took to grow from previous_rate, and ' +
-            'lastSettledRound is the round whose reward is in current_rate. A gap of more than one ' +
-            'round length between that round and the current one means the pool skipped rounds.',
+            'rateIntervalSeconds is how long current_rate took to grow from previous_rate. It ' +
+            'spans two settlement releases, so it is about TWO rounds -- annualise with it, never ' +
+            'with a round length. lastSettledRound is the round whose reward is in current_rate; a ' +
+            'gap of more than one round between that round and the current one means the pool ' +
+            'skipped rounds, and rateIntervalSeconds widens to match.',
         disclaimer,
     }
 }
 
-// Round timing from the network config. roundDurationSeconds here is the LENGTH of a round, which
-// is not the same as the interval the rate pair grew over -- get_exchange_rate uses the treasury's
-// own round_duration for that, and the two differ whenever the pool skipped a round.
+// Round timing from the network config. roundDurationSeconds here is the LENGTH of a round, and is
+// the only place in this server that means one. It is NOT what an APY is annualised by:
+// get_exchange_rate divides by the treasury's own window_duration, which spans two settlement
+// releases and so runs about twice this, widening further whenever the pool skipped a round.
 export async function getRoundTiming(reader: HipoReader): Promise<object> {
     const times = await reader.getTimes()
     const roundDuration = Number(times.nextRoundSince - times.currentRoundSince)

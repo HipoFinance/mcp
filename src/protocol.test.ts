@@ -14,7 +14,7 @@ import {
 } from './protocol.js'
 import { HipoReader, LoanStatus, TreasuryFees, WalletStatus } from './reader.js'
 
-const roundDuration = 65536
+const rateWindow = 2 * 65536
 const someAddress = Address.parse('EQCLyZHP4Xe8fpchQz76O-_RmUhaVc_9BAoGyJrwJrcbz2eZ')
 
 function fakeTimes(): Times {
@@ -22,8 +22,8 @@ function fakeTimes(): Times {
         currentRoundSince: 1784696584n,
         participateSince: 1784729352n,
         participateUntil: 1784753928n,
-        nextRoundSince: 1784696584n + BigInt(roundDuration),
-        nextRoundUntil: 1784696584n + 2n * BigInt(roundDuration),
+        nextRoundSince: 1784696584n + 65536n,
+        nextRoundUntil: 1784696584n + 2n * 65536n,
         stakeHeldFor: 32768n,
     }
 }
@@ -44,9 +44,10 @@ function fakeState(): TreasuryConfig {
         loanCodes: Dictionary.empty(),
         previousRate: 1_078_000_000n,
         currentRate: 1_080_000_000n,
-        // The interval those two rates grew over, which the treasury measured. Same value as the
-        // round length here, since this fixture is a pool that lent into every round.
-        roundDuration: BigInt(roundDuration),
+        // The interval those two rates grew over, which the treasury measured across its last two
+        // settlement releases. Two rounds here, because this fixture is a pool that lent into every
+        // round -- the window is two releases wide whether or not any round was skipped.
+        windowDuration: BigInt(rateWindow),
         lastSettledRound: 1784696584n,
         halter: someAddress,
         governor: someAddress,
@@ -56,6 +57,10 @@ function fakeState(): TreasuryConfig {
         collectionCodes: Dictionary.empty(),
         billCodes: Dictionary.empty(),
         oldParents: Dictionary.empty(),
+        // The observation halfway through the window: one release back from currentRate, one
+        // release on from previousRate, so it sits between them at one round earlier.
+        midRate: 1_079_000_000n,
+        midRound: 1784696584n - 65536n,
     }
 }
 
@@ -63,7 +68,7 @@ class FakeReader implements HipoReader {
     participationRequests: bigint[] = []
     participationState = 3
     timesReads = 0
-    roundDurationOverride?: bigint
+    windowDurationOverride?: bigint
 
     getTimes(): Promise<Times> {
         this.timesReads += 1
@@ -71,8 +76,8 @@ class FakeReader implements HipoReader {
     }
     getTreasuryState(): Promise<TreasuryConfig> {
         const state = fakeState()
-        if (this.roundDurationOverride != null) {
-            state.roundDuration = this.roundDurationOverride
+        if (this.windowDurationOverride != null) {
+            state.windowDuration = this.windowDurationOverride
         }
         return Promise.resolve(state)
     }
@@ -100,14 +105,14 @@ class FakeReader implements HipoReader {
 }
 
 void test('computeApy follows the showState formula', () => {
-    const apy = computeApy(1_080_000_000n, 1_078_000_000n, roundDuration)
-    const expected = Math.pow(1_080_000_000 / 1_078_000_000, (365 * 24 * 60 * 60) / roundDuration) - 1
+    const apy = computeApy(1_080_000_000n, 1_078_000_000n, rateWindow)
+    const expected = Math.pow(1_080_000_000 / 1_078_000_000, (365 * 24 * 60 * 60) / rateWindow) - 1
     assert.equal(apy, expected)
     assert.ok(apy != null && apy > 0)
 })
 
 void test('computeApy guards zero previous rate', () => {
-    assert.equal(computeApy(1_080_000_000n, 0n, roundDuration), null)
+    assert.equal(computeApy(1_080_000_000n, 0n, rateWindow), null)
 })
 
 void test('exchange rate reports totals ratio and disclaimer', async () => {
@@ -127,19 +132,20 @@ void test('exchange rate takes its APY interval from the state, without reading 
     assert.equal(reader.timesReads, 0)
     assert.equal(
         result['recentApy'],
-        formatPercent(computeApy(1_080_000_000n, 1_078_000_000n, roundDuration) ?? 0),
+        formatPercent(computeApy(1_080_000_000n, 1_078_000_000n, rateWindow) ?? 0),
     )
 })
 
 // A skipped round widens the interval the rates grew over, and the reported APY has to fall with it
-// -- reporting the same number would be the bug this field exists to fix.
-void test('exchange rate reports a lower APY when the measured interval spans two rounds', async () => {
+// -- reporting the same number would be the bug this field exists to fix. The baseline is already a
+// two-round window, so the widened case here is four rounds' worth of elapsed time.
+void test('exchange rate reports a lower APY when the measured interval widens', async () => {
     const reader = new FakeReader()
-    reader.roundDurationOverride = BigInt(2 * roundDuration)
-    const twoRounds = (await getExchangeRate(reader)) as Record<string, unknown>
-    const oneRound = (await getExchangeRate(new FakeReader())) as Record<string, unknown>
+    reader.windowDurationOverride = BigInt(2 * rateWindow)
+    const widened = (await getExchangeRate(reader)) as Record<string, unknown>
+    const baseline = (await getExchangeRate(new FakeReader())) as Record<string, unknown>
     const parse = (value: unknown) => Number(String(value).replace('%', ''))
-    assert.ok(parse(twoRounds['recentApy']) < parse(oneRound['recentApy']))
+    assert.ok(parse(widened['recentApy']) < parse(baseline['recentApy']))
 })
 
 void test('participation defaults to the current round', async () => {
