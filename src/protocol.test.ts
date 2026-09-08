@@ -104,16 +104,9 @@ class FakeReader implements HipoReader {
     }
 }
 
-void test('computeApy follows the showState formula', () => {
-    const apy = computeApy(1_080_000_000n, 1_078_000_000n, rateWindow)
-    const expected = Math.pow(1_080_000_000 / 1_078_000_000, (365 * 24 * 60 * 60) / rateWindow) - 1
-    assert.equal(apy, expected)
-    assert.ok(apy != null && apy > 0)
-})
-
-void test('computeApy guards zero previous rate', () => {
-    assert.equal(computeApy(1_080_000_000n, 0n, rateWindow), null)
-})
+// computeApy's arithmetic is the SDK's and is tested there, against the figures from a real
+// release. What is still this server's business is that it hands the helper the right state --
+// which is what the tests below cover.
 
 void test('exchange rate reports totals ratio and disclaimer', async () => {
     const result = (await getExchangeRate(new FakeReader())) as Record<string, unknown>
@@ -130,10 +123,7 @@ void test('exchange rate takes its APY interval from the state, without reading 
     const reader = new FakeReader()
     const result = (await getExchangeRate(reader)) as Record<string, unknown>
     assert.equal(reader.timesReads, 0)
-    assert.equal(
-        result['recentApy'],
-        formatPercent(computeApy(1_080_000_000n, 1_078_000_000n, rateWindow) ?? 0),
-    )
+    assert.equal(result['recentApy'], formatPercent(computeApy(fakeState()) ?? 0))
 })
 
 // A skipped round widens the interval the rates grew over, and the reported APY has to fall with it

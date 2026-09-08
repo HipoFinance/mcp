@@ -1,10 +1,9 @@
 import { Address } from '@ton/ton'
-import { ParticipationState, Participation } from '@hipo-finance/sdk'
+import { ParticipationState, Participation, computeApy } from '@hipo-finance/sdk'
 import { disclaimer } from './config.js'
 import { formatGram, formatPercent, formatTime } from './format.js'
 import { HipoReader } from './reader.js'
 
-const yearSeconds = 365 * 24 * 60 * 60
 
 // The SDK's ParticipationState enum uses CamelCase members (e.g. ReadyToBurn); convert to
 // snake_case to match the naming used elsewhere (contract constants, borrower daemon, docs).
@@ -16,25 +15,19 @@ function participationStateName(state: ParticipationState | undefined): string {
     return name == null ? 'unknown' : name.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()
 }
 
-// APY from on-chain rates only, per the showState formula
-// (contract repo, docs/specs/2026-07-16-showstate-apy-formula.md):
-// growth = current_rate / previous_rate over the interval those two describe, compounded to a year.
-// That interval is window_duration, which the treasury measures across its last two settlement
-// RELEASES -- about two rounds, and never a round length. Dividing by a round length would roughly
-// square the result; it would also report an unchanged APY for a pool that had fallen to
-// validating every other round, since the rates only move when a round the pool lent into settles.
-export function computeApy(currentRate: bigint, previousRate: bigint, windowSeconds: number): number | null {
-    if (previousRate <= 0n || windowSeconds <= 0) {
-        return null
-    }
-    const growth = Number(currentRate) / Number(previousRate)
-    return Math.pow(growth, yearSeconds / windowSeconds) - 1
-}
+// The APY formula now lives in the SDK, as computeApy(state). It was reimplemented in six places
+// across this fleet -- and one of them divided the year by a round length, which roughly squares
+// the answer, so a ~17% pool would have been published as ~37%. Six copies of arithmetic that must
+// agree eventually stop agreeing.
+//
+// It annualises over window_duration, which spans two settlement releases and is about two rounds,
+// never one.
+export { computeApy }
 
 export async function getExchangeRate(reader: HipoReader): Promise<object> {
     const state = await reader.getTreasuryState()
     const rate = Number(state.totalCoins) / Number(state.totalTokens)
-    const apy = computeApy(state.currentRate, state.previousRate, Number(state.windowDuration))
+    const apy = computeApy(state)
     return {
         oneHgramInGram: rate.toFixed(9),
         oneGramInHgram: (1 / rate).toFixed(9),
