@@ -37,11 +37,3 @@ deploy.
 
 `pin-images` ran on a two-hourly cron until 2026-09-10 and is now dispatch-only, so **nothing
 moves the pin unless someone asks it to.**
-
-### Package path
-
-`operation` pins `ghcr.io/hipofinance/mcp`, but `build.yml` here still names
-`ghcr.io/hipogang/mcp` from before this repository moved orgs. Pushes do land in the right
-place — GHCR redirects the old path, and the package under `hipogang` does not exist (the API
-404s on it) — but the two ought to be made to agree rather than leaning on a redirect. `gauge`
-was updated to the canonical path and is the model.
