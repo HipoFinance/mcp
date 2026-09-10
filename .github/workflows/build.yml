@@ -9,6 +9,12 @@ name: Build and push image
 on:
   push:
     branches: [main]
+    # Documentation does not change the image. Without this, editing a README or CLAUDE.md
+    # publishes a new sha tag, which then makes every pin in `operation` look outdated and
+    # invites a deploy that changes nothing. Use the dispatch trigger below to force a build.
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
