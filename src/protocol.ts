@@ -204,7 +204,6 @@ export async function getParticipation(reader: HipoReader, roundSince: bigint | 
         roundStart: formatTime(effectiveRound),
         state: participationStateName(participation.state),
         loanRequests: participation.requests?.size ?? 0,
-        acceptedLoans: participation.accepted?.size ?? 0,
         stakedLoans: participation.staked?.size ?? 0,
         recoveringLoans: participation.recovering?.size ?? 0,
         totalStakedGram: formatGram(participation.totalStaked ?? 0n),

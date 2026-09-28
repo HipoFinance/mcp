@@ -107,7 +107,7 @@ export function buildServer(reader: HipoReader, config: Config): McpServer {
         {
             title: 'Round participation',
             description:
-                "Hipo's participation in a validation round: state machine stage, loan request/accepted/staked counts, totals, and stake release time. Defaults to the current round.",
+                "Hipo's participation in a validation round: state machine stage, loan request/staked/recovering counts, totals, and stake release time. Defaults to the current round.",
             inputSchema: {
                 round_since: z
                     .number()
